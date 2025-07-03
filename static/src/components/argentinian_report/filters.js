@@ -4,9 +4,9 @@ import { AccountReportFilters } from "@account_reports/components/account_report
 
 patch(AccountReportFilters.prototype, {
     get selectedTaxType() {
-        const availableTypes = Object.keys(this.controller.options.ar_vat_book_tax_types_available);
+        const availableTypes = Object.keys(this.controller.options.py_vat_book_tax_types_available);
         const selectedTypes = Object.values(
-            this.controller.options.ar_vat_book_tax_types_available,
+            this.controller.options.py_vat_book_tax_types_available,
         ).filter((type) => type.selected);
 
         if (selectedTypes.length === availableTypes.length || selectedTypes.length === 0) {
@@ -19,7 +19,7 @@ patch(AccountReportFilters.prototype, {
     selectPyVatBookTaxType(taxType) {
         const newArVatBookTaxTypes = Object.assign(
             {},
-            this.controller.options.ar_vat_book_tax_types_available,
+            this.controller.options.py_vat_book_tax_types_available,
         );
         newArVatBookTaxTypes[taxType]["selected"] = !newArVatBookTaxTypes[taxType]["selected"];
         this.filterClicked({ optionKey: "py_vat_book_tax_types_available", optionValue: newArVatBookTaxTypes, reload: true});

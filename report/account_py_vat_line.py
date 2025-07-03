@@ -50,7 +50,11 @@ class AccountPyVatLine(models.Model):
     company_currency_id = fields.Many2one(related='company_id.currency_id', readonly=True)
     move_id = fields.Many2one('account.move', string='Entry', auto_join=True, index='btree_not_null')
     timbrado = fields.Char('Timbrado') #l10n_xma_number_timbrado_asociado en account.move
-
+    l10n_xma_branch = fields.Char('Sucursal', readonly=True)
+    l10n_xma_dispatch_point = fields.Char('Punto de Emisión', readonly=True)
+    full_move_name = fields.Char('Documento Completo', readonly=True)
+    payment_term = fields.Char('Terminos de pago')
+    
     def open_journal_entry(self):
         self.ensure_one()
         return self.move_id.get_formview_action()
@@ -64,23 +68,25 @@ class AccountPyVatLine(models.Model):
 
     @property
     def _table_query(self):
-        return self._ar_vat_line_build_query()
+        return self._py_vat_line_build_query()
 
     @api.model
     def _py_vat_line_build_query(self, table_references=None, search_condition=None,
                                 column_group_key='', tax_types=('sale', 'purchase')) -> SQL:
-        """Construye la consulta SQL para el reporte de IVA Paraguay"""
         if table_references is None:
             table_references = SQL('account_move_line')
-        search_condition = SQL('AND (%s)', search_condition) if search_condition else SQL()
-
-        query = SQL(
+        if search_condition is not None:
+            search_condition = SQL('AND (%s)', search_condition)
+        else:
+            search_condition = SQL()
+        column_group_key = column_group_key or SQL("NULL")
+        return SQL(
             """
             SELECT
                 %(column_group_key)s AS column_group_key,
                 account_move.id,
                 rp.vat AS ruc,
-                ldt.name AS l10n_latam_document_type_id,
+                COALESCE(NULLIF(ldt.name ->> 'es_PY', ''), NULLIF(ldt.name ->> 'en_US', '')) AS l10n_latam_document_type_id,
                 rp.name AS partner_name,
                 COALESCE(nt.type_tax_use, bt.type_tax_use) AS tax_type,
                 account_move.id AS move_id,
@@ -90,20 +96,41 @@ class AccountPyVatLine(models.Model):
                 account_move.partner_id,
                 account_move.journal_id,
                 account_move.name AS move_name,
+        
+                -- Campos adicionales para el nombre completo del documento
+                ldt.l10n_xma_branch,
+                ldt.l10n_xma_dispatch_point,
+                CASE
+                    -- Para facturas de entrada o notas de crédito (compras)
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN
+                        COALESCE(NULLIF(account_move.ref, ''), account_move.name)
+                
+                    -- Para otros tipos (ventas, recibos, etc.)
+                    ELSE
+                        CONCAT_WS('-',
+                            COALESCE(ldt.l10n_xma_branch, '001'),
+                            COALESCE(ldt.l10n_xma_dispatch_point, '001'),
+                            account_move.name
+                        )
+                END AS full_move_name,
                 account_move.l10n_latam_document_type_id as document_type_id,
                 account_move.state,
                 account_move.company_id,
-                account_move.l10n_xma_number_timbrado_asociado AS timbrado,
-                -- Campos para IVA 10%
+                ldt.l10n_xma_authorization_code AS timbrado,
+                CASE
+                    WHEN account_move.l10n_xma_payment_term = 'cash' THEN 'Contado'
+                    WHEN account_move.l10n_xma_payment_term = 'credit' THEN 'Crédito'
+                    ELSE account_move.l10n_xma_payment_term
+                END AS payment_term,
+        
+                -- Impuestos...
                 SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 1 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS base_10,
                 SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 1 AND nt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS vat_10,
-                -- Campos para IVA 5%
                 SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 1 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
                 SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 1 AND nt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS vat_5,
-                -- No gravados/exentos
-                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id != 1 OR bt.l10n_xma_tax_factor_type_id IS NULL THEN account_move_line.balance ELSE 0 END) AS not_taxed,
-                -- Total
+                0 AS not_taxed,
                 SUM(account_move_line.balance) AS total
+        
             FROM
                 %(table_references)s
                 JOIN account_move ON account_move_line.move_id = account_move.id
@@ -126,4 +153,108 @@ class AccountPyVatLine(models.Model):
             tax_types=tax_types,
             search_condition=search_condition,
         )
-        return query
+
+
+
+
+class AccountPyVatCsvLine(models.Model):
+    _name = "account.py.vat.csv.line"
+    _description = "Línea de IVA Paraguay - Formato CSV oficial"
+    _auto = False
+
+    company_currency_id = fields.Many2one('res.currency', default=lambda self: self.env.company.currency_id, readonly=True)
+    registro_codigo_tipo = fields.Char('Código Tipo de Registro', readonly=True)
+    proveedor_tipo_documento = fields.Char('Tipo Documento', readonly=True)
+    proveedor_numero_documento = fields.Char('Número Documento', readonly=True)
+    proveedor_nombre = fields.Char('Nombre/Razón Social', readonly=True)
+    tipo_comprobante_codigo = fields.Char('Código Comprobante', readonly=True)
+    fecha_emision = fields.Date('Fecha Emisión', readonly=True)
+    numero_timbrado = fields.Char('Timbrado', readonly=True)
+    numero_comprobante = fields.Char('Número Comprobante', readonly=True)
+    gravado_10 = fields.Monetary('Gravado 10%', currency_field='company_currency_id', readonly=True)
+    gravado_5 = fields.Monetary('Gravado 5%', currency_field='company_currency_id', readonly=True)
+    exento = fields.Monetary('Exento', currency_field='company_currency_id', readonly=True)
+    total_comprobante = fields.Monetary('Total', currency_field='company_currency_id', readonly=True)
+    condicion_compra_codigo = fields.Char('Condición de Compra', readonly=True)
+    moneda_extranjera = fields.Char('Moneda Extranjera', readonly=True)
+    imputa_iva = fields.Char('Imputa IVA', readonly=True)
+    imputa_ire = fields.Char('Imputa IRE', readonly=True)
+    imputa_irp_rsp = fields.Char('Imputa IRP-RSP', readonly=True)
+    no_imputa = fields.Char('No Imputa', readonly=True)
+    comprobante_venta_numero = fields.Char('Nro. Comprobante Venta', readonly=True)
+    timbrado_venta = fields.Char('Timbrado Venta', readonly=True)
+
+    def init(self):
+        cr = self._cr
+        tools.drop_view_if_exists(cr, self._table)
+        query = self._py_vat_csv_line_build_query()
+        sql = SQL("""CREATE or REPLACE VIEW account_py_vat_csv_line as (%s)""", query)
+        cr.execute(sql)
+
+    @property
+    def _table_query(self):
+        return self._py_vat_csv_line_build_query()
+         
+    @api.model
+    def _py_vat_csv_line_build_query(self, table_references=None, search_condition=None,
+                                column_group_key='', tax_types=('sale', 'purchase')) -> SQL:
+        # Esta es tu nueva consulta SQL que genera los datos en el formato requerido
+        if table_references is None:
+            table_references = SQL('account_move_line')
+        if search_condition is not None:
+            search_condition = SQL('AND (%s)', search_condition)
+        else:
+            search_condition = SQL()
+        column_group_key = column_group_key or SQL("NULL")
+        return SQL("""
+            SELECT
+                %(column_group_key)s AS column_group_key,
+                account_move.id,
+                '2' AS registro_codigo_tipo,
+                rp.l10n_xma_indentification_type AS proveedor_tipo_documento,
+                rp.vat AS proveedor_numero_documento,
+                rp.name AS proveedor_nombre,
+                '1' tipo_comprobante_codigo,
+                account_move.invoice_date AS fecha_emision,
+                account_move.l10n_xma_number_timbrado_asociado AS numero_timbrado,
+                account_move.name AS numero_comprobante,
+
+                -- Impuestos
+                SUM(CASE WHEN bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS gravado_10,
+                SUM(CASE WHEN bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS gravado_5,
+                SUM(CASE WHEN bt.amount = 0 OR bt.amount IS NULL THEN account_move_line.balance ELSE 0 END) AS exento,
+                SUM(account_move_line.balance) AS total_comprobante,
+
+                -- Campos adicionales
+                CASE
+                    WHEN account_move.l10n_xma_payment_term = 'cash' THEN '1'
+                    WHEN account_move.l10n_xma_payment_term = 'credit' THEN '2'
+                    ELSE ''
+                END AS condicion_compra_codigo,
+                'N' AS moneda_extranjera,
+                'S' AS imputa_iva,
+                'N' AS imputa_ire,
+                'N' AS imputa_irp_rsp,
+                'S' AS no_imputa,
+                account_move.ref AS comprobante_venta_numero,
+                account_move.l10n_xma_number_timbrado_asociado AS timbrado_venta
+
+            FROM
+                %(table_references)s
+                JOIN account_move ON account_move_line.move_id = account_move.id
+                LEFT JOIN res_partner AS rp ON account_move.commercial_partner_id = rp.id
+                LEFT JOIN l10n_latam_document_type AS ldt ON account_move.l10n_latam_document_type_id = ldt.id
+                LEFT JOIN l10n_latam_identification_type AS lit ON rp.l10n_latam_identification_type_id = lit.id
+                LEFT JOIN account_move_line_account_tax_rel AS amltr ON account_move_line.id = amltr.account_move_line_id
+                LEFT JOIN account_tax AS bt ON amltr.account_tax_id = bt.id
+            WHERE
+                1=1
+            GROUP BY
+                account_move.id, lit.id, rp.id, ldt.id
+            ORDER BY
+                account_move.invoice_date, account_move.name
+        """,
+        column_group_key=column_group_key,
+        table_references=table_references,
+        tax_types=tax_types,
+        search_condition=search_condition,)

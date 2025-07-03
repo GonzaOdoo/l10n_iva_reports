@@ -11,6 +11,12 @@
         <field name="load_more_limit" eval="4000"/>
         <field name="column_ids">
             <!-- Columnas de información básica -->
+            <record id="l10n_py_vat_book_report_column_move_name" model="account.report.column">
+                <field name="name">Documento</field>
+                <field name="expression_label">full_move_name</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">30</field>
+            </record>
             <record id="l10n_py_vat_book_report_column_invoice_date" model="account.report.column">
                 <field name="name">Fecha</field>
                 <field name="expression_label">invoice_date</field>
@@ -22,12 +28,6 @@
                 <field name="expression_label">l10n_latam_document_type_id</field>
                 <field name="figure_type">string</field>
                 <field name="sequence">20</field>
-            </record>
-            <record id="l10n_py_vat_book_report_column_move_name" model="account.report.column">
-                <field name="name">Número</field>
-                <field name="expression_label">move_name</field>
-                <field name="figure_type">string</field>
-                <field name="sequence">30</field>
             </record>
             <record id="l10n_py_vat_book_report_column_partner_name" model="account.report.column">
                 <field name="name">Nombre</field>
@@ -85,6 +85,179 @@
                 <field name="figure_type">monetary</field>
                 <field name="sequence">120</field>
             </record>
+            <record id="l10n_py_vat_book_report_column_document_type" model="account.report.column">
+                <field name="name">Condicion</field>
+                <field name="expression_label">payment_term</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">130</field>
+            </record>
         </field>
     </record>
+
+    <record id="l10n_py_vat_csv_report" model="account.report">
+        <field name="name">RG90</field>
+        <field name="root_report_id" ref="account.generic_tax_report"/>
+        <field name="country_id" ref="base.py"/>
+        <field name="filter_unreconciled">False</field>
+        <field name="filter_period_comparison">False</field>
+        <field name="filter_growth_comparison">False</field>
+        <field name="custom_handler_model_id" ref="model_l10n_py_vat_csv_report_handler"/>
+        <field name="load_more_limit">4000</field>
+
+        <field name="column_ids">
+    
+            <!-- Columna 2: Tipo Documento Proveedor/Vendedor -->
+            <record id="l10n_py_vat_csv_report_column_proveedor_tipo_documento" model="account.report.column">
+                <field name="name">Tipo Documento Proveedor</field>
+                <field name="expression_label">proveedor_tipo_documento</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">2</field>
+            </record>
+            <!-- Columna 3: Número de Identificación -->
+            <record id="l10n_py_vat_csv_report_column_proveedor_numero_documento" model="account.report.column">
+                <field name="name">Número de Identificación</field>
+                <field name="expression_label">proveedor_numero_documento</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">3</field>
+            </record>
+    
+            <!-- Columna 4: Nombre/Razón Social -->
+            <record id="l10n_py_vat_csv_report_column_proveedor_nombre" model="account.report.column">
+                <field name="name">Nombre/Razón Social</field>
+                <field name="expression_label">proveedor_nombre</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">4</field>
+            </record>
+    
+            <!-- Columna 5: Código Tipo de Comprobante -->
+            <record id="l10n_py_vat_csv_report_column_tipo_comprobante_codigo" model="account.report.column">
+                <field name="name">Código Tipo de Comprobante</field>
+                <field name="expression_label">tipo_comprobante_codigo</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">5</field>
+            </record>
+    
+            <!-- Columna 6: Fecha Emisión -->
+            <record id="l10n_py_vat_csv_report_column_fecha_emision" model="account.report.column">
+                <field name="name">Fecha de Emisión</field>
+                <field name="expression_label">fecha_emision</field>
+                <field name="figure_type">date</field>
+                <field name="sequence">6</field>
+            </record>
+    
+            <!-- Columna 7: Número de Timbrado -->
+            <record id="l10n_py_vat_csv_report_column_numero_timbrado" model="account.report.column">
+                <field name="name">Timbrado</field>
+                <field name="expression_label">numero_timbrado</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">7</field>
+            </record>
+    
+            <!-- Columna 8: Número del Comprobante -->
+            <record id="l10n_py_vat_csv_report_column_numero_comprobante" model="account.report.column">
+                <field name="name">Número del Comprobante</field>
+                <field name="expression_label">numero_comprobante</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">8</field>
+            </record>
+    
+            <!-- Columna 9: Monto Gravado al 10% -->
+            <record id="l10n_py_vat_csv_report_column_gravado_10" model="account.report.column">
+                <field name="name">Gravado 10%</field>
+                <field name="expression_label">gravado_10</field>
+                <field name="figure_type">monetary</field>
+                <field name="sequence">9</field>
+            </record>
+    
+            <!-- Columna 10: Monto Gravado al 5% -->
+            <record id="l10n_py_vat_csv_report_column_gravado_5" model="account.report.column">
+                <field name="name">Gravado 5%</field>
+                <field name="expression_label">gravado_5</field>
+                <field name="figure_type">monetary</field>
+                <field name="sequence">10</field>
+            </record>
+    
+            <!-- Columna 11: Monto Exento -->
+            <record id="l10n_py_vat_csv_report_column_exento" model="account.report.column">
+                <field name="name">Exento</field>
+                <field name="expression_label">exento</field>
+                <field name="figure_type">monetary</field>
+                <field name="sequence">11</field>
+            </record>
+    
+            <!-- Columna 12: Total del Comprobante -->
+            <record id="l10n_py_vat_csv_report_column_total_comprobante" model="account.report.column">
+                <field name="name">Total del Comprobante</field>
+                <field name="expression_label">total_comprobante</field>
+                <field name="figure_type">monetary</field>
+                <field name="sequence">12</field>
+            </record>
+    
+            <!-- Columna 13: Condición de Compra -->
+            <record id="l10n_py_vat_csv_report_column_condicion_compra_codigo" model="account.report.column">
+                <field name="name">Condición de Compra</field>
+                <field name="expression_label">condicion_compra_codigo</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">13</field>
+            </record>
+    
+            <!-- Columna 14: Operación en Moneda Extranjera -->
+            <record id="l10n_py_vat_csv_report_column_moneda_extranjera" model="account.report.column">
+                <field name="name">Moneda Extranjera</field>
+                <field name="expression_label">moneda_extranjera</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">14</field>
+            </record>
+    
+            <!-- Columna 15: Imputa al IVA -->
+            <record id="l10n_py_vat_csv_report_column_imputa_iva" model="account.report.column">
+                <field name="name">Imputa al IVA</field>
+                <field name="expression_label">imputa_iva</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">15</field>
+            </record>
+    
+            <!-- Columna 16: Imputa al IRE -->
+            <record id="l10n_py_vat_csv_report_column_imputa_ire" model="account.report.column">
+                <field name="name">Imputa al IRE</field>
+                <field name="expression_label">imputa_ire</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">16</field>
+            </record>
+    
+            <!-- Columna 17: Imputa al IRP-RSP -->
+            <record id="l10n_py_vat_csv_report_column_imputa_irp_rsp" model="account.report.column">
+                <field name="name">Imputa al IRP-RSP</field>
+                <field name="expression_label">imputa_irp_rsp</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">17</field>
+            </record>
+    
+            <!-- Columna 18: No Imputa -->
+            <record id="l10n_py_vat_csv_report_column_no_imputa" model="account.report.column">
+                <field name="name">No Imputa</field>
+                <field name="expression_label">no_imputa</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">18</field>
+            </record>
+    
+            <!-- Columna 19: Número del Comprobante de Venta Asociado -->
+            <record id="l10n_py_vat_csv_report_column_comprobante_venta_numero" model="account.report.column">
+                <field name="name">Nro. Comprobante Venta</field>
+                <field name="expression_label">comprobante_venta_numero</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">19</field>
+            </record>
+    
+            <!-- Columna 20: Timbrado del Comprobante de Venta Asociado -->
+            <record id="l10n_py_vat_csv_report_column_timbrado_venta" model="account.report.column">
+                <field name="name">Timbrado Venta</field>
+                <field name="expression_label">timbrado_venta</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">20</field>
+            </record>
+        </field>
+    </record>
+
+    
 </odoo>
