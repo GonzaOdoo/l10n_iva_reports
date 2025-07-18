@@ -31,9 +31,11 @@ Características técnicas:
     'depends': [
         'l10n_xma_einvoice_py',
         'account_reports',
+        'account',
     ],
     'data': [
         'data/account_financial_report_data.xml',
+        'views/account_move_views.xml',
     ],
     'assets': {
         'web.assets_backend': [

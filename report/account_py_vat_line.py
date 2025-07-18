@@ -1,8 +1,10 @@
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
 from odoo import api, fields, models, tools
 from odoo.tools import SQL
+import re
+import logging
 
-
+_logger = logging.getLogger(__name__)
 class AccountPyVatLine(models.Model):
     """ Base model for new Argentine VAT reports. The idea is that these lines have all the necessary data and which any
     changes in odoo, this ones will be taken for this cube and then no changes will be needed in the reports that use
@@ -54,6 +56,7 @@ class AccountPyVatLine(models.Model):
     l10n_xma_dispatch_point = fields.Char('Punto de Emisión', readonly=True)
     full_move_name = fields.Char('Documento Completo', readonly=True)
     payment_term = fields.Char('Terminos de pago')
+    form_145 = fields.Char('Formulario 145')
     
     def open_journal_entry(self):
         self.ensure_one()
@@ -96,7 +99,7 @@ class AccountPyVatLine(models.Model):
                 account_move.partner_id,
                 account_move.journal_id,
                 account_move.name AS move_name,
-        
+                account_move.form_145 as form_145,
                 -- Campos adicionales para el nombre completo del documento
                 ldt.l10n_xma_branch,
                 ldt.l10n_xma_dispatch_point,
@@ -116,7 +119,10 @@ class AccountPyVatLine(models.Model):
                 account_move.l10n_latam_document_type_id as document_type_id,
                 account_move.state,
                 account_move.company_id,
-                ldt.l10n_xma_authorization_code AS timbrado,
+                CASE
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN account_move.timbrado_proveedor
+                    ELSE ldt.l10n_xma_authorization_code
+                END AS timbrado,
                 CASE
                     WHEN account_move.l10n_xma_payment_term = 'cash' THEN 'Contado'
                     WHEN account_move.l10n_xma_payment_term = 'credit' THEN 'Crédito'
@@ -124,10 +130,10 @@ class AccountPyVatLine(models.Model):
                 END AS payment_term,
         
                 -- Impuestos...
-                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 1 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS base_10,
-                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 1 AND nt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS vat_10,
-                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 1 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
-                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 1 AND nt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS vat_5,
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS base_10,
+                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS vat_10,
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
+                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS vat_5,
                 0 AS not_taxed,
                 SUM(account_move_line.balance) AS total
         
@@ -201,29 +207,49 @@ class AccountPyVatCsvLine(models.Model):
         # Esta es tu nueva consulta SQL que genera los datos en el formato requerido
         if table_references is None:
             table_references = SQL('account_move_line')
+        # Interceptamos y modificamos la search_condition si existe
+        if search_condition and isinstance(search_condition, SQL):
+            raw_sql = str(search_condition)
+    
+            # Buscamos y eliminamos cualquier parte que mencione l10n_latam_use_documents
+            pattern = r'AND $$(?:"account_move_line"$$\."journal_id" IN $$SELECT[^)]*?"l10n_latam_use_documents"[^)]*?$$)'
+            modified_sql = re.sub(pattern, '', raw_sql)
+            _logger.info(modified_sql)
+            # Reconstruimos como objeto SQL
+            
         if search_condition is not None:
             search_condition = SQL('AND (%s)', search_condition)
         else:
             search_condition = SQL()
+        
         column_group_key = column_group_key or SQL("NULL")
         return SQL("""
             SELECT
                 %(column_group_key)s AS column_group_key,
                 account_move.id,
-                '2' AS registro_codigo_tipo,
+                CASE
+                    WHEN account_move.move_type IN ('out_invoice', 'out_refund') THEN '1'
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN '2'
+                    ELSE NULL
+                END AS registro_codigo_tipo,
                 rp.l10n_xma_indentification_type AS proveedor_tipo_documento,
                 rp.vat AS proveedor_numero_documento,
                 rp.name AS proveedor_nombre,
-                '1' tipo_comprobante_codigo,
+                ldt.code AS tipo_comprobante_codigo,
                 account_move.invoice_date AS fecha_emision,
-                account_move.l10n_xma_number_timbrado_asociado AS numero_timbrado,
+                CASE
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN account_move.timbrado_proveedor
+                    ELSE ldt.l10n_xma_authorization_code
+                END AS numero_timbrado,
                 account_move.name AS numero_comprobante,
 
                 -- Impuestos
-                SUM(CASE WHEN bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS gravado_10,
-                SUM(CASE WHEN bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS gravado_5,
-                SUM(CASE WHEN bt.amount = 0 OR bt.amount IS NULL THEN account_move_line.balance ELSE 0 END) AS exento,
-                SUM(account_move_line.balance) AS total_comprobante,
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS base_10,
+                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 10 THEN account_move_line.balance * -1 ELSE 0 END) AS gravado_10,
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
+                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance * -1 ELSE 0 END) AS gravado_5,
+                0 AS not_taxed,
+                account_move.amount_total_signed AS total_comprobante,
 
                 -- Campos adicionales
                 CASE
@@ -231,26 +257,40 @@ class AccountPyVatCsvLine(models.Model):
                     WHEN account_move.l10n_xma_payment_term = 'credit' THEN '2'
                     ELSE ''
                 END AS condicion_compra_codigo,
-                'N' AS moneda_extranjera,
+                CASE
+                    WHEN account_move.currency_id != res_company.currency_id THEN 'S'
+                    ELSE 'N'
+                END AS moneda_extranjera,
                 'S' AS imputa_iva,
                 'N' AS imputa_ire,
                 'N' AS imputa_irp_rsp,
-                'S' AS no_imputa,
-                account_move.ref AS comprobante_venta_numero,
+                'N' AS no_imputa,
+                CASE
+                    WHEN account_move.move_type IN ('out_refund', 'in_refund') AND account_move.reversed_entry_id IS NOT NULL THEN
+                        (SELECT name FROM account_move am2 WHERE am2.id = account_move.reversed_entry_id)
+                    WHEN account_move.debit_origin_id IS NOT NULL THEN
+                        (SELECT name FROM account_move am3 WHERE am3.id = account_move.debit_origin_id)
+                    ELSE ''
+                END AS comprobante_venta_numero,
                 account_move.l10n_xma_number_timbrado_asociado AS timbrado_venta
-
             FROM
                 %(table_references)s
                 JOIN account_move ON account_move_line.move_id = account_move.id
+                JOIN res_company ON account_move.company_id = res_company.id
+                JOIN account_journal ON account_move.journal_id = account_journal.id
+                LEFT JOIN account_tax AS nt ON account_move_line.tax_line_id = nt.id
                 LEFT JOIN res_partner AS rp ON account_move.commercial_partner_id = rp.id
                 LEFT JOIN l10n_latam_document_type AS ldt ON account_move.l10n_latam_document_type_id = ldt.id
                 LEFT JOIN l10n_latam_identification_type AS lit ON rp.l10n_latam_identification_type_id = lit.id
                 LEFT JOIN account_move_line_account_tax_rel AS amltr ON account_move_line.id = amltr.account_move_line_id
                 LEFT JOIN account_tax AS bt ON amltr.account_tax_id = bt.id
+  
             WHERE
-                1=1
+                ldt.code <> '5' AND ldt.code <> '6' 
+                AND (nt.type_tax_use IN %(tax_types)s OR bt.type_tax_use IN %(tax_types)s)
+                %(search_condition)s
             GROUP BY
-                account_move.id, lit.id, rp.id, ldt.id
+                account_move.id, lit.id, rp.id, ldt.id,res_company.id
             ORDER BY
                 account_move.invoice_date, account_move.name
         """,

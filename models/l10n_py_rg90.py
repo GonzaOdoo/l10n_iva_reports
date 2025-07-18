@@ -1,4 +1,4 @@
-from odoo import api, models, _
+from odoo import api, models, fields, _
 from odoo.tools import SQL
 from collections import defaultdict
 import logging
@@ -94,13 +94,22 @@ class ParaguayVATCSVReportHandler(models.AbstractModel):
 
     def _custom_options_initializer(self, report, options, previous_options):
         super()._custom_options_initializer(report, options, previous_options=previous_options)
-
+        csv_export_button = {
+            'name': _('Exportar a CSV'),
+            'sequence': 25,
+            'action': 'export_file',
+            'action_param': 'export_to_csv',  # Este debe coincidir con el nombre del método en tu handler
+            'file_export_type': _('CSV'),
+        }
+    
+        # Añadimos los botones
+        options['buttons'].append(csv_export_button)
         # Configurar tipos de impuestos disponibles
         options['py_vat_book_tax_types_available'] = previous_options.get('py_vat_book_tax_types_available') or {
             'sale': {'name': 'Ventas', 'selected': False},
             'purchase': {'name': 'Compras', 'selected': True},
         }
-
+        
         # Forzar dominio para documentos fiscales
         options['forced_domain'] = [
             *options.get('forced_domain', []),
@@ -110,7 +119,7 @@ class ParaguayVATCSVReportHandler(models.AbstractModel):
     def _build_query(self, report, options, column_group_key) -> SQL:
         query = report._get_report_query(options, 'strict_range')
         tax_types = tuple(self._vat_book_get_selected_tax_types(options))
-        _logger.info(query.where_clause,)
+        _logger.info(tax_types)
         # Aquí puedes usar otra consulta SQL específica para tu nuevo reporte
         return self.env['account.py.vat.csv.line']._py_vat_csv_line_build_query(
             query.from_clause,
@@ -156,3 +165,138 @@ class ParaguayVATCSVReportHandler(models.AbstractModel):
             if selected_type_value['selected']
         ]
         return selected_types if selected_types else ['sale', 'purchase']
+
+    def _validate_period(self, options):
+        date_options = options.get('date', {})
+        mode = date_options.get('mode')
+        if mode not in ['range', 'single']:
+            raise UserError(_('Debe seleccionar un periodo válido (por mes o por año).'))
+    
+        if mode == 'range':
+            # Es un rango de fechas, validamos si corresponde a un mes completo o a un año
+            date_from = fields.Date.from_string(date_options.get('date_from'))
+            date_to = fields.Date.from_string(date_options.get('date_to'))
+    
+            if date_from.month == date_to.month and date_from.year == date_to.year:
+                # Es un mes completo
+                return f"{date_from.month:02d}{date_from.year}"
+            elif date_from.year == date_to.year and date_from.month == 1 and date_to.month == 12:
+                # Es un año completo
+                return str(date_from.year)
+            else:
+                raise UserError(_('El rango de fechas debe ser un mes completo o un año completo.'))
+        elif mode == 'single':
+            # Es una fecha única, tratamos como mes
+            date = fields.Date.from_string(date_options.get('date'))
+            return f"{date.month:02d}{date.year}"
+
+    def _get_company_ruc(self, options):
+        company_id = self.env.company
+        vat = company_id.vat or ''
+        # Quitar el último carácter (dígito verificador)
+        return vat
+
+    def _get_identifier(self, options):
+        tax_types = self._vat_book_get_selected_tax_types(options)
+    
+        if len(tax_types) == 0:
+            raise UserError(_('Debe seleccionar al menos un tipo de transacción (Ventas o Compras).'))
+    
+        if tax_types == ['purchase']:
+            return 'C0001'
+        elif tax_types == ['sale']:
+            return 'V0001'
+        else:
+            return '00001'
+
+    def export_to_csv(self, options):
+        """Exporta los datos del reporte a un archivo CSV con formato RG90."""
+        report = self.env.ref('l10n_iva_reports.l10n_py_vat_book_report')
+    
+        # Validar que haya un modo de fecha correcto
+        period = self._validate_period(options)
+        ruc = self._get_company_ruc(options)
+        identifier = self._get_identifier(options)
+    
+        # Generar nombre base
+        filename_base = f"{ruc}_REG_{period}_{identifier}"
+        csv_filename = f"{filename_base}.csv"
+        zip_filename = f"{filename_base}.zip"
+    
+        lines = self._dynamic_lines_generator(
+            report=report,
+            options=options,
+            all_column_groups_expression_totals={}
+        )
+    
+        # Extraer líneas reales
+        data_lines = [line for line in lines if isinstance(line, tuple) and line[0] == 0 and not line[1].get('markup')]
+    
+        # Encabezados oficiales
+        headers = [
+            'CÓDIGO TIPO DE REGISTRO',
+            'CÓDIGO TIPO DE IDENTIFICACIÓN DEL PROVEEDOR/VENDEDOR',
+            'NÚMERO DE IDENTIFICACIÓN DEL PROVEEDOR/VENDEDOR',
+            'NOMBRE O RAZÓN SOCIAL DEL PROVEEDOR/VENDEDOR',
+            'CÓDIGO TIPO DE COMPROBANTE',
+            'FECHA DE EMISIÓN DEL COMPROBANTE',
+            'NÚMERO DE TIMBRADO',
+            'NÚMERO DEL COMPROBANTE',
+            'MONTO GRAVADO AL 10%',
+            'MONTO GRAVADO AL 5%',
+            'MONTO EXENTO',
+            'TOTAL DEL COMPROBANTE',
+            'CONDICIÓN DE COMPRA',
+            'OPERACIÓN EN MONEDA EXTRANJERA',
+            'IMPUTA AL IVA',
+            'IMPUTA AL IRE',
+            'IMPUTA AL IRP-RSP',
+            'NO IMPUTA',
+            'NÚMERO DEL COMPROBANTE DE VENTA ASOCIADO',
+            'TIMBRADO DEL COMPROBANTE DE VENTA ASOCIADO'
+        ]
+    
+        expression_labels = {col['expression_label']: idx for idx, col in enumerate(options['columns'])}
+    
+        rows = []
+        for line in data_lines:
+            row_data = line[1]
+            columns = row_data.get('columns', [])
+            row = [''] * len(headers)
+    
+            for col in columns:
+                expr_label = col.get('expression_label')
+                no_format = col.get('no_format', '')
+                value = '' if no_format is None else str(no_format).strip()
+                if expr_label in expression_labels:
+                    idx = expression_labels[expr_label]
+                    row[idx] = value
+    
+            rows.append(row)
+    
+        # Construimos el CSV
+        import csv
+        from io import StringIO
+        from zipfile import ZipFile
+        from base64 import b64encode
+        import tempfile
+    
+        output = StringIO()
+        writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
+        #writer.writerow(headers)
+        writer.writerows(rows)
+        csv_content = output.getvalue().encode('utf-8-sig')
+    
+        # Crear ZIP
+        temp_zip = tempfile.SpooledTemporaryFile()
+        with ZipFile(temp_zip, mode='w') as zip_file:
+            zip_file.writestr(csv_filename, csv_content)
+    
+        temp_zip.seek(0)
+        zip_content = temp_zip.read()
+    
+        return {
+            'file_name': zip_filename,
+            'file_content': zip_content,
+            'file_type': 'zip',
+        }
