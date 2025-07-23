@@ -83,8 +83,8 @@ class ParaguayVATCSVReportHandler(models.AbstractModel):
             }))
 
         # Línea de total si solo hay un tipo de diario seleccionado
-        if len(self._vat_book_get_selected_tax_types(options)) < 2:
-            lines.append((0, self._create_report_total_line(report, options, total_values_dict)))
+        #if len(self._vat_book_get_selected_tax_types(options)) < 2:
+        #    lines.append((0, self._create_report_total_line(report, options, total_values_dict)))
 
         return lines
 

@@ -23,6 +23,7 @@ class AccountPyVatLine(models.Model):
     date = fields.Date(readonly=True)
     invoice_date = fields.Date(readonly=True)
     ruc = fields.Char(readonly=True)
+    identification_type_id = fields.Char('Tipo de identificacion')
     l10n_latam_document_type_id = fields.Char(readonly=True)
     partner_name = fields.Char(readonly=True)
     move_name = fields.Char(readonly=True)
@@ -232,24 +233,50 @@ class AccountPyVatCsvLine(models.Model):
                     WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN '2'
                     ELSE NULL
                 END AS registro_codigo_tipo,
-                rp.l10n_xma_indentification_type AS proveedor_tipo_documento,
+                CASE rp.l10n_xma_indentification_type
+                    WHEN '1' THEN '12'
+                    WHEN '2' THEN '13'
+                    WHEN '3' THEN '14'
+                    WHEN '4' THEN '15'
+                    WHEN '11' THEN '11'
+                    -- Agrega más mapeos según sea necesario
+                    ELSE '99'  -- Valor por defecto si no coincide con ninguno
+                END AS proveedor_tipo_documento,
                 rp.vat AS proveedor_numero_documento,
                 rp.name AS proveedor_nombre,
-                ldt.code AS tipo_comprobante_codigo,
+                ldt.rg90_code AS tipo_comprobante_codigo,
                 account_move.invoice_date AS fecha_emision,
                 CASE
                     WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN account_move.timbrado_proveedor
                     ELSE ldt.l10n_xma_authorization_code
                 END AS numero_timbrado,
-                account_move.name AS numero_comprobante,
+                CASE
+                    -- Para facturas de entrada o notas de crédito (compras)
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN
+                        COALESCE(NULLIF(account_move.ref, ''), account_move.name)
+                
+                    -- Para otros tipos (ventas, recibos, etc.)
+                    ELSE
+                        CONCAT_WS('-',
+                            COALESCE(ldt.l10n_xma_branch, '001'),
+                            COALESCE(ldt.l10n_xma_dispatch_point, '001'),
+                            account_move.name
+                        )
+                END AS numero_comprobante,
 
                 -- Impuestos
                 SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS base_10,
-                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 10 THEN account_move_line.balance * -1 ELSE 0 END) AS gravado_10,
                 SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
                 SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance * -1 ELSE 0 END) AS gravado_5,
                 0 AS not_taxed,
-                account_move.amount_total_signed AS total_comprobante,
+                CASE
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -account_move.amount_total_signed
+                    ELSE account_move.amount_total_signed
+                END AS total_comprobante,
+                CASE
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -account_move.amount_total_signed
+                    ELSE account_move.amount_total_signed
+                END AS gravado_10,
 
                 -- Campos adicionales
                 CASE

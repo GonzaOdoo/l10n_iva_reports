@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="account_payment_group_rp_sequence" model="ir.sequence">
+        <field name="name">Recibo de pagos</field>
+        <field name="code">recibo_pago</field>
+        <field name="prefix">001-</field>
+        <field name="padding">8</field>
+        <field name="number_next">1</field>
+        <field name="number_increment">1</field>
+    </record>
+
+    <record id="account_payment_group_op_sequence" model="ir.sequence">
+        <field name="name">Reporte de Pagos</field>
+        <field name="code">reporte_pago</field>
+        <field name="prefix">001-</field>
+        <field name="padding">8</field>
+        <field name="number_next">1</field>
+        <field name="number_increment">1</field>
+    </record>
+    
+</odoo>

@@ -105,7 +105,14 @@
         <field name="load_more_limit">4000</field>
 
         <field name="column_ids">
-    
+
+            <!-- Columna 2: Tipo Documento Proveedor/Vendedor -->
+            <record id="l10n_py_vat_csv_report_column_proveedor_tipo_documento" model="account.report.column">
+                <field name="name">Tipo de registro</field>
+                <field name="expression_label">registro_codigo_tipo</field>
+                <field name="figure_type">string</field>
+                <field name="sequence">1</field>
+            </record>
             <!-- Columna 2: Tipo Documento Proveedor/Vendedor -->
             <record id="l10n_py_vat_csv_report_column_proveedor_tipo_documento" model="account.report.column">
                 <field name="name">Tipo Documento Proveedor</field>
