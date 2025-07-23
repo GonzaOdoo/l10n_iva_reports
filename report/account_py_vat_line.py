@@ -313,7 +313,7 @@ class AccountPyVatCsvLine(models.Model):
                 LEFT JOIN account_tax AS bt ON amltr.account_tax_id = bt.id
   
             WHERE
-                ldt.code <> '5' AND ldt.code <> '6' 
+                ldt.code <> '5' AND ldt.code <> '6' AND ldt.code <> '9'
                 AND (nt.type_tax_use IN %(tax_types)s OR bt.type_tax_use IN %(tax_types)s)
                 %(search_condition)s
             GROUP BY
