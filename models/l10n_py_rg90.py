@@ -198,15 +198,24 @@ class ParaguayVATCSVReportHandler(models.AbstractModel):
 
     def _get_identifier(self, options):
         tax_types = self._vat_book_get_selected_tax_types(options)
-    
+        
         if len(tax_types) == 0:
             raise UserError(_('Debe seleccionar al menos un tipo de transacción (Ventas o Compras).'))
     
         if tax_types == ['purchase']:
+            sequence = self.env['ir.sequence'].next_by_code('l10n_py_vat_csv_c')
+            if sequence:
+                return sequence
             return 'C0001'
         elif tax_types == ['sale']:
+            sequence = self.env['ir.sequence'].next_by_code('l10n_py_vat_csv_v')
+            if sequence:
+                return sequence
             return 'V0001'
         else:
+            sequence = self.env['ir.sequence'].next_by_code('l10n_py_vat_csv_a')
+            if sequence:
+                return sequence
             return '00001'
 
     def export_to_csv(self, options):
@@ -217,7 +226,6 @@ class ParaguayVATCSVReportHandler(models.AbstractModel):
         period = self._validate_period(options)
         ruc = self._get_company_ruc(options)
         identifier = self._get_identifier(options)
-    
         # Generar nombre base
         filename_base = f"{ruc}_REG_{period}_{identifier}"
         csv_filename = f"{filename_base}.csv"

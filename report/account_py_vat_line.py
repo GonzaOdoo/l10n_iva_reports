@@ -242,7 +242,7 @@ class AccountPyVatCsvLine(models.Model):
                     -- Agrega más mapeos según sea necesario
                     ELSE '99'  -- Valor por defecto si no coincide con ninguno
                 END AS proveedor_tipo_documento,
-                rp.vat AS proveedor_numero_documento,
+                TRIM(SPLIT_PART(rp.vat, '-', 1)) AS proveedor_numero_documento,
                 rp.name AS proveedor_nombre,
                 ldt.rg90_code AS tipo_comprobante_codigo,
                 account_move.invoice_date AS fecha_emision,
@@ -268,7 +268,7 @@ class AccountPyVatCsvLine(models.Model):
                 SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS base_10,
                 SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
                 SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance * -1 ELSE 0 END) AS gravado_5,
-                0 AS not_taxed,
+                0 AS exento,
                 CASE
                     WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -account_move.amount_total_signed
                     ELSE account_move.amount_total_signed

@@ -17,5 +17,29 @@
         <field name="number_next">1</field>
         <field name="number_increment">1</field>
     </record>
+
+    <record id="l10n_py_vat_csv_sequence" model="ir.sequence">
+            <field name="name">Libro IVA Paraguay - Exportación CSV Compras</field>
+            <field name="code">l10n_py_vat_csv_c</field>
+            <field name="prefix">C</field>
+            <field name="suffix"></field>
+            <field name="padding">4</field>
+        </record>
+
+    <record id="l10n_py_vat_csv_sequence" model="ir.sequence">
+            <field name="name">Libro IVA Paraguay - Exportación CSV Ventas</field>
+            <field name="code">l10n_py_vat_csv_v</field>
+            <field name="prefix">V</field>
+            <field name="suffix"></field>
+            <field name="padding">4</field>
+        </record>
+
+    <record id="l10n_py_vat_csv_sequence" model="ir.sequence">
+            <field name="name">Libro IVA Paraguay - Exportación CSV Todo</field>
+            <field name="code">l10n_py_vat_csv_a</field>
+            <field name="prefix"></field>
+            <field name="suffix"></field>
+            <field name="padding">4</field>
+        </record>
     
 </odoo>
