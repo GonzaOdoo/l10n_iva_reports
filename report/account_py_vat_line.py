@@ -263,21 +263,52 @@ class AccountPyVatCsvLine(models.Model):
                             account_move.name
                         )
                 END AS numero_comprobante,
-
-                -- Impuestos
-                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS base_10,
-                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
-                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance * -1 ELSE 0 END) AS gravado_5,
-                0 AS exento,
+                CASE
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -1
+                    ELSE 1
+                END AS signo,
+            
+                -- Bases y montos de impuesto (con signo aplicado directamente)
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) *
+                    (CASE WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -1 ELSE 1 END)
+                    AS base_10,
+                
+                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 10 THEN account_move_line.balance ELSE 0 END) *
+                    (CASE WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -1 ELSE 1 END)
+                    AS vat_10,
+                
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) *
+                    (CASE WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -1 ELSE 1 END)
+                    AS base_5,
+                
+                SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance ELSE 0 END) *
+                    (CASE WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -1 ELSE 1 END)
+                    AS vat_5,
+                
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 11 THEN account_move_line.balance ELSE 0 END) *
+                    (CASE WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN 1 ELSE -1 END)
+                    AS exento,
+            
+                (
+                    SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 10 THEN account_move_line.balance ELSE 0 END) +
+                    SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 10 THEN account_move_line.balance ELSE 0 END)
+                ) *
+                    (CASE WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN 1 ELSE -1 END)
+                    AS gravado_10,
+                
+                (
+                    --SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) +
+                    SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance ELSE 0 END)
+                ) *
+                    (CASE WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN 1 ELSE -1 END)
+                    AS gravado_5,
+                
+                -- Total comprobante
                 CASE
                     WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -account_move.amount_total_signed
                     ELSE account_move.amount_total_signed
                 END AS total_comprobante,
-                CASE
-                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -account_move.amount_total_signed
-                    ELSE account_move.amount_total_signed
-                END AS gravado_10,
-
+                               
                 -- Campos adicionales
                 CASE
                     WHEN account_move.l10n_xma_payment_term = 'cash' THEN '1'
@@ -311,13 +342,12 @@ class AccountPyVatCsvLine(models.Model):
                 LEFT JOIN l10n_latam_identification_type AS lit ON rp.l10n_latam_identification_type_id = lit.id
                 LEFT JOIN account_move_line_account_tax_rel AS amltr ON account_move_line.id = amltr.account_move_line_id
                 LEFT JOIN account_tax AS bt ON amltr.account_tax_id = bt.id
-  
             WHERE
                 ldt.code <> '5' AND ldt.code <> '6' AND ldt.code <> '9'
                 AND (nt.type_tax_use IN %(tax_types)s OR bt.type_tax_use IN %(tax_types)s)
                 %(search_condition)s
             GROUP BY
-                account_move.id, lit.id, rp.id, ldt.id,res_company.id
+                account_move.id, lit.id, rp.id, ldt.id, res_company.id
             ORDER BY
                 account_move.invoice_date, account_move.name
         """,
