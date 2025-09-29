@@ -15,7 +15,8 @@ class ParaguayVATReportHandler(models.AbstractModel):
     def _dynamic_lines_generator(self, report, options, all_column_groups_expression_totals, warnings=None):
         move_info_dict = {}
         total_values_dict = {}
-
+        total_invoice_dict = {}      # Solo facturas
+        total_credit_dict = {}       # Solo notas de crédito
         # Keys numéricas que deben mostrarse como números
         number_keys = ['base_5', 'vat_5', 'base_10', 'vat_10', 'not_taxed', 'total']
 
@@ -26,7 +27,8 @@ class ParaguayVATReportHandler(models.AbstractModel):
             query = self._build_query(report, column_group_options, column_group_key)
             query_list.append(SQL("(%s)", query))
             total_values_dict.setdefault(column_group_key, dict.fromkeys(number_keys, 0.0))
-
+            total_invoice_dict.setdefault(column_group_key, dict.fromkeys(number_keys, 0.0))
+            total_credit_dict.setdefault(column_group_key, dict.fromkeys(number_keys, 0.0))
         full_query = SQL(" UNION ALL ").join(query_list)
         self._cr.execute(full_query)
         results = self._cr.dictfetchall()
@@ -36,17 +38,29 @@ class ParaguayVATReportHandler(models.AbstractModel):
             move_id = result['id']
             column_group_key = result['column_group_key']
             result['date'] = result['date'].strftime("%Y-%m-%d")
-            
             sign = -1.0 if result['tax_type'] == 'sale' else 1.0
             current_move_info = move_info_dict.setdefault(move_id, {})
             current_move_info['line_name'] = result['move_name']
             current_move_info[column_group_key] = result
-
+            move_type = result.get('move_type')  # Asegúrate de que tu query incluya 'move_type'
+            is_credit_note = move_type in ('out_refund', 'in_refund')
+            is_invoice = move_type in ('out_invoice', 'in_invoice')
             # Aplicar signo y sumar a totales
-            totals = total_values_dict[column_group_key]
+            #totals = total_values_dict[column_group_key]
             for key in number_keys:
                 result[key] = sign * result[key]
-                totals[key] += result[key]
+                signed_value = sign * result[key]
+                
+                # Total general
+                total_values_dict[column_group_key][key] += result[key]
+                
+                # Total facturas
+                if is_invoice:
+                    total_invoice_dict[column_group_key][key] += result[key]
+                
+                # Total notas de crédito
+                if is_credit_note:
+                    total_credit_dict[column_group_key][key] += result[key]
 
         # Generar líneas del reporte
         lines = []
@@ -87,7 +101,13 @@ class ParaguayVATReportHandler(models.AbstractModel):
 
         # Línea de total si solo hay un tipo de diario seleccionado
         if len(self._vat_book_get_selected_tax_types(options)) < 2:
-            lines.append((0, self._create_report_total_line(report, options, total_values_dict)))
+            
+            # Total facturas
+            lines.append((0, self._create_report_total_line(report, options, total_invoice_dict, _("Total Facturas"))))
+            # Total notas de crédito
+            lines.append((0, self._create_report_total_line(report, options, total_credit_dict, _("Total Notas de Crédito"))))
+            # Total general
+            lines.append((0, self._create_report_total_line(report, options, total_values_dict, _("Total General"))))
 
         return lines
 
@@ -128,8 +148,7 @@ class ParaguayVATReportHandler(models.AbstractModel):
             'level': 2,
         }
 
-    def _create_report_total_line(self, report, options, total_vals):
-        """Crear una línea de total para el reporte"""
+    def _create_report_total_line(self, report, options, total_vals, name=_("Total")):
         columns = []
         for column in options['columns']:
             expression_label = column['expression_label']
@@ -137,8 +156,8 @@ class ParaguayVATReportHandler(models.AbstractModel):
             columns.append(report._build_column_dict(value, column, options=options))
         
         return {
-            'id': report._get_generic_line_id(None, None, markup='total'),
-            'name': _('Total'),
+            'id': report._get_generic_line_id(None, None, markup=name.lower().replace(' ', '_')),
+            'name': name,
             'class': 'total',
             'level': 1,
             'columns': columns,

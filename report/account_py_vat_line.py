@@ -89,7 +89,7 @@ class AccountPyVatLine(models.Model):
             SELECT
                 %(column_group_key)s AS column_group_key,
                 account_move.id,
-                rp.vat AS ruc,
+                CONCAT_WS('-', rp.vat, l10n_xma_control_digit) AS ruc,
                 COALESCE(NULLIF(ldt.name ->> 'es_PY', ''), NULLIF(ldt.name ->> 'en_US', '')) AS l10n_latam_document_type_id,
                 rp.name AS partner_name,
                 COALESCE(nt.type_tax_use, bt.type_tax_use) AS tax_type,
@@ -106,8 +106,7 @@ class AccountPyVatLine(models.Model):
                 ldt.l10n_xma_dispatch_point,
                 CASE
                     -- Para facturas de entrada o notas de crédito (compras)
-                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN
-                        COALESCE(NULLIF(account_move.ref, ''), account_move.name)
+                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN account_move.name
                 
                     -- Para otros tipos (ventas, recibos, etc.)
                     ELSE
@@ -135,7 +134,8 @@ class AccountPyVatLine(models.Model):
                 SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 10 THEN account_move_line.balance ELSE 0 END) AS vat_10,
                 SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 9 AND bt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS base_5,
                 SUM(CASE WHEN nt.l10n_xma_tax_factor_type_id = 9 AND nt.amount = 5 THEN account_move_line.balance ELSE 0 END) AS vat_5,
-                0 AS not_taxed,
+                SUM(CASE WHEN bt.l10n_xma_tax_factor_type_id = 11 THEN account_move_line.balance ELSE 0 END)
+                    AS not_taxed,
                 SUM(account_move_line.balance) AS total
         
             FROM
@@ -250,19 +250,7 @@ class AccountPyVatCsvLine(models.Model):
                     WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN account_move.timbrado_proveedor
                     ELSE ldt.l10n_xma_authorization_code
                 END AS numero_timbrado,
-                CASE
-                    -- Para facturas de entrada o notas de crédito (compras)
-                    WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN
-                        COALESCE(NULLIF(account_move.ref, ''), account_move.name)
-                
-                    -- Para otros tipos (ventas, recibos, etc.)
-                    ELSE
-                        CONCAT_WS('-',
-                            COALESCE(ldt.l10n_xma_branch, '001'),
-                            COALESCE(ldt.l10n_xma_dispatch_point, '001'),
-                            account_move.name
-                        )
-                END AS numero_comprobante,
+                account_move.name AS numero_comprobante,
                 CASE
                     WHEN account_move.move_type IN ('in_invoice', 'in_refund') THEN -1
                     ELSE 1
