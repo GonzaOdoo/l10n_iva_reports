@@ -333,6 +333,7 @@ class AccountPyVatCsvLine(models.Model):
             WHERE
                 ldt.code <> '5' AND ldt.code <> '6' AND ldt.code <> '9'
                 AND (nt.type_tax_use IN %(tax_types)s OR bt.type_tax_use IN %(tax_types)s)
+                AND ldt.code != '1'
                 %(search_condition)s
             GROUP BY
                 account_move.id, lit.id, rp.id, ldt.id, res_company.id
